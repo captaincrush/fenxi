@@ -114,7 +114,7 @@ def update_sku_new_arrival_status(ws_out, sku_row_map, sku_col_idx, brand, count
     wb_sku.save(sku_filepath)
     print(f"SKU列表已更新: {sku_filepath}")
 
-def manage_new_arrival_skus(ws_out, sku_row_map, sku_col_idx, file_latest_name, date_latest):
+def manage_new_arrival_skus(ws_out, sku_row_map, sku_col_idx, file_latest_name, date_latest, base_dir="."):
     """管理新上架SKU的主函数"""
     brand, country = parse_brand_country(file_latest_name)
     if not brand or not country:
@@ -122,7 +122,7 @@ def manage_new_arrival_skus(ws_out, sku_row_map, sku_col_idx, file_latest_name, 
         return
     
     # 确保SKU目录存在
-    sku_dir = "SKU"
+    sku_dir = os.path.join(base_dir, "SKU")
     if not os.path.exists(sku_dir):
         os.makedirs(sku_dir)
         print(f"创建SKU目录: {sku_dir}")

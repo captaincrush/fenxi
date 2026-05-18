@@ -1,0 +1,16 @@
+# Python cache/build artifacts
+__pycache__/
+*.py[cod]
+build/
+dist/
+
+# Generated analysis outputs
+draft.xlsx
+SKU/
+
+# Raw/report data files
+*.csv
+*.xlsx
+*.xls
+*.xlsm
+*.exe

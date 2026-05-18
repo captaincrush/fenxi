@@ -8,6 +8,8 @@ from data_loader import load_sheet_data, calculate_weekly_data, analyze_sku_perf
 from excel_writer import ExcelWriter
 from sku_manager import manage_new_arrival_skus
 
+ANALYSIS_DIR_NAMES = ("分析", "分析文件夹")
+
 def overwrite_summary_sheet_from_draft(draft_file, target_file, sheet_name="总计"):
     """用 Excel COM 复制整张总计 sheet，避免 openpyxl 重写目标文件导致图片/形状丢失。"""
     script = r'''
@@ -110,9 +112,31 @@ finally {
             return
     print(f"已将 draft.xlsx 的 {sheet_name} sheet 覆盖到最新每日销量文件: {target_file}")
 
-def main():
+def find_analysis_directories(root_dir):
+    """查找每个同级A文件夹里的分析目录；没有找到时兼容处理当前目录。"""
+    analysis_dirs = []
+    ignored_dirs = {".git", "__pycache__", "build", "dist", "SKU"}
+
+    for name in sorted(os.listdir(root_dir)):
+        folder_path = os.path.join(root_dir, name)
+        if not os.path.isdir(folder_path) or name in ignored_dirs:
+            continue
+
+        for analysis_dir_name in ANALYSIS_DIR_NAMES:
+            analysis_path = os.path.join(folder_path, analysis_dir_name)
+            if os.path.isdir(analysis_path):
+                analysis_dirs.append(analysis_path)
+                break
+
+    if analysis_dirs:
+        return analysis_dirs
+
+    return [root_dir]
+
+def process_directory(current_dir):
     # 1. 查找并验证文件
-    files_with_dates = find_xlsx_files_with_dates(CURRENT_DIR)
+    print(f"\n开始处理目录: {current_dir}")
+    files_with_dates = find_xlsx_files_with_dates(current_dir)
     if len(files_with_dates) < 3:
         print("错误：当前目录中至少需要 3 个 .xlsx 文件。")
         print("找到的文件：", [f for f,d in files_with_dates])
@@ -123,9 +147,9 @@ def main():
     file_prev_name, date_prev = files_with_dates[-2]
     file_latest_name, date_latest = files_with_dates[-1]
 
-    file_prev2 = os.path.join(CURRENT_DIR, file_prev2_name)
-    file_prev = os.path.join(CURRENT_DIR, file_prev_name)
-    file_latest = os.path.join(CURRENT_DIR, file_latest_name)
+    file_prev2 = os.path.join(current_dir, file_prev2_name)
+    file_prev = os.path.join(current_dir, file_prev_name)
+    file_latest = os.path.join(current_dir, file_latest_name)
 
     print("使用文件 (按时间从早到晚)：")
     print("01:", file_prev2_name, date_prev2)
@@ -194,7 +218,7 @@ def main():
 
     # 管理新上架SKU
     print("正在管理新上架SKU...")
-    manage_new_arrival_skus(ws_out, excel_writer.sku_row_map, excel_writer.sku_col_idx, file_latest_name, date_latest)
+    manage_new_arrival_skus(ws_out, excel_writer.sku_row_map, excel_writer.sku_col_idx, file_latest_name, date_latest, current_dir)
 
     # 写入分析结果（现在改为表格形式）
     excel_writer.write_analysis_table(top2_sales, bottom2_sales, top2_conv, bottom2_conv)
@@ -221,6 +245,18 @@ def main():
         print(f"错误：无法保存文件，文件可能正在被其他程序使用")
         print(f"请关闭Excel后重试，或检查文件权限")
         return
+
+def main():
+    root_dir = os.path.dirname(os.path.abspath(__file__))
+    analysis_dirs = find_analysis_directories(root_dir)
+
+    print(f"共找到 {len(analysis_dirs)} 个待处理分析目录")
+    for analysis_dir in analysis_dirs:
+        try:
+            process_directory(analysis_dir)
+        except Exception as e:
+            print(f"处理目录失败: {analysis_dir}")
+            print(f"错误信息: {e}")
 
 if __name__ == "__main__":
     main()

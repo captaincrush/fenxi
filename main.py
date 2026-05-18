@@ -1,75 +1,113 @@
 # main.py
 import os
+import subprocess
 import openpyxl
-from copy import copy
 from config import CURRENT_DIR
 from utils import find_xlsx_files_with_dates
 from data_loader import load_sheet_data, calculate_weekly_data, analyze_sku_performance, calculate_acos_analysis,analyze_high_conversion_products, analyze_high_conversion_low_acos_products
 from excel_writer import ExcelWriter
 from sku_manager import manage_new_arrival_skus
 
-def copy_sheet_contents(source_ws, target_ws):
-    """将 source_ws 的内容、样式和常用布局复制到 target_ws。"""
-    for row in source_ws.iter_rows():
-        for source_cell in row:
-            target_cell = target_ws.cell(row=source_cell.row, column=source_cell.column)
-            target_cell.value = source_cell.value
-
-            if source_cell.has_style:
-                target_cell.font = copy(source_cell.font)
-                target_cell.fill = copy(source_cell.fill)
-                target_cell.border = copy(source_cell.border)
-                target_cell.alignment = copy(source_cell.alignment)
-                target_cell.protection = copy(source_cell.protection)
-                target_cell.number_format = source_cell.number_format
-
-            if source_cell.comment:
-                target_cell.comment = copy(source_cell.comment)
-            if source_cell.hyperlink:
-                target_cell.hyperlink = copy(source_cell.hyperlink)
-
-    for merged_range in source_ws.merged_cells.ranges:
-        target_ws.merge_cells(str(merged_range))
-
-    for key, dim in source_ws.column_dimensions.items():
-        target_ws.column_dimensions[key] = copy(dim)
-    for key, dim in source_ws.row_dimensions.items():
-        target_ws.row_dimensions[key] = copy(dim)
-
-    target_ws.freeze_panes = source_ws.freeze_panes
-    target_ws.sheet_format = copy(source_ws.sheet_format)
-    target_ws.sheet_properties = copy(source_ws.sheet_properties)
-    target_ws.page_margins = copy(source_ws.page_margins)
-    target_ws.page_setup = copy(source_ws.page_setup)
-    target_ws.print_options = copy(source_ws.print_options)
-    target_ws.auto_filter.ref = source_ws.auto_filter.ref
-
 def overwrite_summary_sheet_from_draft(draft_file, target_file, sheet_name="总计"):
-    """用 draft.xlsx 中的总计 sheet 覆盖目标每日销量文件中的总计 sheet。"""
-    wb_draft = openpyxl.load_workbook(draft_file, data_only=False)
-    if sheet_name not in wb_draft.sheetnames:
-        print(f"未找到 {sheet_name} sheet，跳过覆盖每日销量文件。")
+    """用 Excel COM 复制整张总计 sheet，避免 openpyxl 重写目标文件导致图片/形状丢失。"""
+    script = r'''
+$ErrorActionPreference = "Stop"
+$draftPath = $env:DRAFT_FILE
+$targetPath = $env:TARGET_FILE
+$sheetName = $env:SHEET_NAME
+
+$excel = $null
+$draftWb = $null
+$targetWb = $null
+$tempWs = $null
+
+try {
+    $excel = New-Object -ComObject Excel.Application
+    $excel.Visible = $false
+    $excel.DisplayAlerts = $false
+    $missing = [System.Type]::Missing
+
+    $draftWb = $excel.Workbooks.Open($draftPath)
+    $targetWb = $excel.Workbooks.Open($targetPath)
+
+    $sourceWs = $null
+    foreach ($ws in @($draftWb.Worksheets)) {
+        if ($ws.Name -eq $sheetName) {
+            $sourceWs = $ws
+            break
+        }
+    }
+
+    if ($null -eq $sourceWs) {
+        Write-Output "未找到 $sheetName sheet，跳过覆盖每日销量文件。"
         return
+    }
 
-    wb_target = openpyxl.load_workbook(target_file, data_only=False)
-    source_ws = wb_draft[sheet_name]
+    $targetWs = $null
+    $targetIndex = $targetWb.Worksheets.Count + 1
+    for ($i = 1; $i -le $targetWb.Worksheets.Count; $i++) {
+        $ws = $targetWb.Worksheets.Item($i)
+        if ($ws.Name -eq $sheetName) {
+            $targetWs = $ws
+            $targetIndex = $i
+            break
+        }
+    }
 
-    if sheet_name in wb_target.sheetnames:
-        sheet_index = wb_target.sheetnames.index(sheet_name)
-        target_ws_old = wb_target[sheet_name]
-        if len(wb_target.worksheets) > 1:
-            wb_target.remove(target_ws_old)
-            target_ws = wb_target.create_sheet(sheet_name, sheet_index)
-        else:
-            target_ws = target_ws_old
-            for merged_range in list(target_ws.merged_cells.ranges):
-                target_ws.unmerge_cells(str(merged_range))
-            target_ws.delete_rows(1, target_ws.max_row)
-    else:
-        target_ws = wb_target.create_sheet(sheet_name)
+    if ($null -ne $targetWs) {
+        if ($targetWb.Worksheets.Count -eq 1) {
+            $tempWs = $targetWb.Worksheets.Add()
+        }
+        $targetWs.Delete()
+    }
 
-    copy_sheet_contents(source_ws, target_ws)
-    wb_target.save(target_file)
+    if ($targetIndex -le 1) {
+        $sourceWs.Copy($targetWb.Worksheets.Item(1), $missing)
+    } else {
+        $afterIndex = [Math]::Min($targetIndex - 1, $targetWb.Worksheets.Count)
+        $sourceWs.Copy($missing, $targetWb.Worksheets.Item($afterIndex))
+    }
+
+    $copiedWs = $targetWb.ActiveSheet
+    $copiedWs.Name = $sheetName
+
+    if ($null -ne $tempWs) {
+        $tempWs.Delete()
+    }
+
+    $targetWb.Save()
+}
+finally {
+    if ($null -ne $targetWb) { $targetWb.Close($false) }
+    if ($null -ne $draftWb) { $draftWb.Close($false) }
+    if ($null -ne $excel) { $excel.Quit() }
+}
+'''
+    env = os.environ.copy()
+    env["DRAFT_FILE"] = os.path.abspath(draft_file)
+    env["TARGET_FILE"] = os.path.abspath(target_file)
+    env["SHEET_NAME"] = sheet_name
+
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+            check=True,
+            capture_output=True,
+            text=True,
+            env=env
+        )
+    except subprocess.CalledProcessError as e:
+        if e.stdout:
+            print(e.stdout.strip())
+        if e.stderr:
+            print(e.stderr.strip())
+        raise
+
+    if result.stdout.strip():
+        output = result.stdout.strip()
+        print(output)
+        if "跳过覆盖" in output:
+            return
     print(f"已将 draft.xlsx 的 {sheet_name} sheet 覆盖到最新每日销量文件: {target_file}")
 
 def main():

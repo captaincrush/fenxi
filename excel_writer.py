@@ -1,6 +1,7 @@
 # excel_writer.py
 import openpyxl
 from openpyxl.comments import Comment
+from openpyxl.cell.cell import MergedCell
 from copy import copy
 from config import *
 from utils import *
@@ -123,7 +124,10 @@ class ExcelWriter:
 
         for r in range(start_row, end_row + 1):
             for c in range(start_col, end_col + 1):
-                self.ws_out.cell(row=r, column=c).value = None
+                cell = self.ws_out.cell(row=r, column=c)
+                if isinstance(cell, MergedCell):
+                    continue
+                cell.value = None
 
     def find_sku_column(self):
         """找 SKU 列的位置"""

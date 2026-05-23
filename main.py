@@ -160,6 +160,7 @@ def parse_brand_from_filename(filename):
 def prepare_latest_report_for_analysis(analysis_dir, report_date):
     """从A文件夹复制唯一的每日销量结果文件到分析目录，并按日期和品牌重命名。"""
     parent_dir = os.path.dirname(analysis_dir)
+    parent_dir_name = os.path.basename(parent_dir)
     candidates = []
 
     for name in os.listdir(parent_dir):
@@ -180,9 +181,9 @@ def prepare_latest_report_for_analysis(analysis_dir, report_date):
         return
 
     source_name = candidates[0]
-    brand = parse_brand_from_filename(source_name)
+    brand = parse_brand_from_filename(parent_dir_name)
     if not brand:
-        print(f"无法从文件名识别品牌，跳过复制: {source_name}")
+        print(f"无法从A文件夹名识别品牌，跳过复制: {parent_dir_name}")
         return
 
     destination_name = f"{report_date}-{brand}-{source_name}"

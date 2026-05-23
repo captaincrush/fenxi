@@ -193,7 +193,7 @@ def prepare_latest_report_for_analysis(analysis_dir, report_date):
     shutil.copy2(source_path, destination_path)
     print(f"已复制最新报表到分析目录: {destination_name}")
 
-def process_directory(current_dir):
+def process_directory(current_dir, result_dir=None):
     # 1. 查找并验证文件
     print(f"\n开始处理目录: {current_dir}")
     files_with_dates = find_xlsx_files_with_dates(current_dir)
@@ -297,6 +297,11 @@ def process_directory(current_dir):
         draft_file = os.path.join(os.path.dirname(file_latest), "draft.xlsx")
         wb_out.save(draft_file)
         overwrite_summary_sheet_from_draft(draft_file, file_latest)
+        if result_dir:
+            os.makedirs(result_dir, exist_ok=True)
+            result_file = os.path.join(result_dir, os.path.basename(file_latest))
+            shutil.copy2(file_latest, result_file)
+            print(f"已复制最终分析文件到分析结果文件夹: {result_file}")
         print("分析完成！最新-----------")
         print(f"销量分析SKU数量: {len(sales_results)}")
         print(f"转化率分析SKU数量: {len(conv_results)}")
@@ -309,13 +314,14 @@ def process_directory(current_dir):
 def main():
     root_dir = os.path.dirname(os.path.abspath(__file__))
     analysis_dirs = find_analysis_directories(root_dir)
+    result_dir = os.path.join(root_dir, "分析结果")
     report_date = normalize_input_date(input("请输入本次报表日期（例如 05-23）："))
 
     print(f"共找到 {len(analysis_dirs)} 个待处理分析目录")
     for analysis_dir in analysis_dirs:
         try:
             prepare_latest_report_for_analysis(analysis_dir, report_date)
-            process_directory(analysis_dir)
+            process_directory(analysis_dir, result_dir)
         except Exception as e:
             print(f"处理目录失败: {analysis_dir}")
             print(f"错误信息: {e}")

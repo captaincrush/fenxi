@@ -1,5 +1,7 @@
 # main.py
 import os
+import re
+import shutil
 import subprocess
 import openpyxl
 from config import CURRENT_DIR
@@ -9,6 +11,8 @@ from excel_writer import ExcelWriter
 from sku_manager import manage_new_arrival_skus
 
 ANALYSIS_DIR_NAMES = ("分析", "分析文件夹")
+BRANDS = ("Goiteia", "Bloom", "Awode", "MALTGOODS")
+SOURCE_FILE_KEYWORD = "每日销量及广告计算结果"
 
 def overwrite_summary_sheet_from_draft(draft_file, target_file, sheet_name="总计"):
     """用 Excel COM 复制整张总计 sheet，避免 openpyxl 重写目标文件导致图片/形状丢失。"""
@@ -133,6 +137,62 @@ def find_analysis_directories(root_dir):
 
     return [root_dir]
 
+def normalize_input_date(date_text):
+    """将用户输入的日期统一成 M-D 格式，例如 05-23。"""
+    date_text = date_text.strip()
+    match = re.fullmatch(r"(\d{1,2})[-/](\d{1,2})", date_text)
+    if not match:
+        raise ValueError("日期格式错误，请输入类似 05-23 或 5-23 的格式。")
+
+    month, day = int(match.group(1)), int(match.group(2))
+    if not (1 <= month <= 12 and 1 <= day <= 31):
+        raise ValueError("日期范围错误，请输入有效的月和日。")
+
+    return f"{month:02d}-{day:02d}"
+
+def parse_brand_from_filename(filename):
+    lower_name = filename.lower()
+    for brand in BRANDS:
+        if brand.lower() in lower_name:
+            return brand
+    return None
+
+def prepare_latest_report_for_analysis(analysis_dir, report_date):
+    """从A文件夹复制唯一的每日销量结果文件到分析目录，并按日期和品牌重命名。"""
+    parent_dir = os.path.dirname(analysis_dir)
+    candidates = []
+
+    for name in os.listdir(parent_dir):
+        source_path = os.path.join(parent_dir, name)
+        if not os.path.isfile(source_path):
+            continue
+        if not name.lower().endswith(".xlsx"):
+            continue
+        if SOURCE_FILE_KEYWORD in name:
+            candidates.append(name)
+
+    if len(candidates) == 0:
+        print(f"未找到待复制文件，跳过复制: {parent_dir}")
+        return
+    if len(candidates) > 1:
+        print(f"找到多个待复制文件，无法判断唯一文件，跳过复制: {parent_dir}")
+        print("候选文件：", candidates)
+        return
+
+    source_name = candidates[0]
+    brand = parse_brand_from_filename(source_name)
+    if not brand:
+        print(f"无法从文件名识别品牌，跳过复制: {source_name}")
+        return
+
+    destination_name = f"{report_date}-{brand}-{source_name}"
+    source_path = os.path.join(parent_dir, source_name)
+    destination_path = os.path.join(analysis_dir, destination_name)
+
+    os.makedirs(analysis_dir, exist_ok=True)
+    shutil.copy2(source_path, destination_path)
+    print(f"已复制最新报表到分析目录: {destination_name}")
+
 def process_directory(current_dir):
     # 1. 查找并验证文件
     print(f"\n开始处理目录: {current_dir}")
@@ -249,10 +309,12 @@ def process_directory(current_dir):
 def main():
     root_dir = os.path.dirname(os.path.abspath(__file__))
     analysis_dirs = find_analysis_directories(root_dir)
+    report_date = normalize_input_date(input("请输入本次报表日期（例如 05-23）："))
 
     print(f"共找到 {len(analysis_dirs)} 个待处理分析目录")
     for analysis_dir in analysis_dirs:
         try:
+            prepare_latest_report_for_analysis(analysis_dir, report_date)
             process_directory(analysis_dir)
         except Exception as e:
             print(f"处理目录失败: {analysis_dir}")

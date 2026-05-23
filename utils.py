@@ -102,7 +102,7 @@ def parse_brand_country(filename):
     elif "awode" in lower_name:
         brand = "Awode"
     elif "maltgoods" in lower_name:
-        brand = "MALTGOODS"
+        brand = "MaltGoods"
 
     # 匹配国家代码
     match = re.findall(r"-([A-Z]{2})", filename)
